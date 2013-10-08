@@ -19,19 +19,30 @@
 #define MWLog(x, ...)
 #endif
 
+typedef enum {
+	RBSZoomModePage,
+	RBSZoomModeWidth,
+	RBSZoomModeFrame
+} RBSZoomMode;
+
 // Delgate
 @class MWPhotoBrowser;
 
 @protocol MWPhotoBrowserDelegate <NSObject>
 
+- (BOOL)photoBrowser:(MWPhotoBrowser *)photoBrowser shouldAllowZoomMode:(RBSZoomMode)zoomMode;
 - (NSUInteger)numberOfPhotosInPhotoBrowser:(MWPhotoBrowser *)photoBrowser;
 - (id<MWPhoto>)photoBrowser:(MWPhotoBrowser *)photoBrowser photoAtIndex:(NSUInteger)index;
 
 @optional
 
+- (UIColor *)backgroundColorForPhotoBrowser:(MWPhotoBrowser *)photoBrowser;
 - (MWCaptionView *)photoBrowser:(MWPhotoBrowser *)photoBrowser captionViewForPhotoAtIndex:(NSUInteger)index;
 - (void)photoBrowser:(MWPhotoBrowser *)photoBrowser didDisplayPhotoAtIndex:(NSUInteger)index;
 - (void)photoBrowser:(MWPhotoBrowser *)photoBrowser actionButtonPressedForPhotoAtIndex:(NSUInteger)index;
+
+// Toggle zoom mode
+- (void)toggleZoomMode;
 
 @end
 
@@ -40,6 +51,7 @@
 
 // Properties
 @property (nonatomic, weak) IBOutlet id<MWPhotoBrowserDelegate> delegate;
+@property (nonatomic) RBSZoomMode zoomMode;
 @property (nonatomic) BOOL zoomPhotosToFill;
 @property (nonatomic) BOOL displayNavArrows;
 @property (nonatomic) BOOL displayActionButton;
@@ -59,5 +71,8 @@
 // Navigation
 - (void)showNextPhotoAnimated:(BOOL)animated;
 - (void)showPreviousPhotoAnimated:(BOOL)animated;
+
+// Toggle zoom mode
+- (void)toggleZoomMode;
 
 @end

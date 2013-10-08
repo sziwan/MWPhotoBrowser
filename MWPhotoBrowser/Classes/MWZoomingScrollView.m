@@ -6,6 +6,8 @@
 //  Copyright 2010 d3i. All rights reserved.
 //
 
+#import "RBSScreen.h"
+#import "RBSFrame.h"
 #import "MWZoomingScrollView.h"
 #import "MWPhotoBrowser.h"
 #import "MWPhoto.h"
@@ -32,6 +34,11 @@
 - (void)handleSingleTap:(CGPoint)touchPoint;
 - (void)handleDoubleTap:(CGPoint)touchPoint;
 
+// Comic reader extensions
+@property (readonly) RBSScreen *screen;
+- (CGPoint)relativeImagePoint:(CGPoint)absolutePoint;
+- (CGRect)absoluteImageRect:(CGRect)relativeRect;
+
 @end
 
 @implementation MWZoomingScrollView
@@ -46,14 +53,14 @@
 		_tapView = [[MWTapDetectingView alloc] initWithFrame:self.bounds];
 		_tapView.tapDelegate = self;
 		_tapView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-		_tapView.backgroundColor = [UIColor blackColor];
+		_tapView.backgroundColor = [UIColor clearColor];
 		[self addSubview:_tapView];
 		
 		// Image view
 		_photoImageView = [[MWTapDetectingImageView alloc] initWithFrame:CGRectZero];
 		_photoImageView.tapDelegate = self;
 		_photoImageView.contentMode = UIViewContentModeCenter;
-		_photoImageView.backgroundColor = [UIColor blackColor];
+		_photoImageView.backgroundColor = [UIColor clearColor];
 		[self addSubview:_photoImageView];
 		
 		// Loading indicator
@@ -77,7 +84,7 @@
                                                    object:nil];
         
 		// Setup
-		self.backgroundColor = [UIColor blackColor];
+		self.backgroundColor = [UIColor clearColor];
 		self.delegate = self;
 		self.showsHorizontalScrollIndicator = NO;
 		self.showsVerticalScrollIndicator = NO;
@@ -137,7 +144,12 @@
 			self.contentSize = photoImageViewFrame.size;
 
 			// Set zoom to minimum zoom
-			[self setMaxMinZoomScalesForCurrentBounds];
+            [self setMaxMinZoomScalesForCurrentBounds];
+            
+            // Set background color if set on the screen
+            UIColor *backgroundColor = [self.screen backgroundColor];
+            _photoImageView.backgroundColor = backgroundColor;
+            self.backgroundColor = backgroundColor;
 			
 		} else {
 			
@@ -189,7 +201,7 @@
 	
 	// Sizes
     CGSize boundsSize = self.bounds.size;
-    CGSize imageSize = _photoImageView.frame.size;
+    CGSize imageSize = _photoImageView.image.size;
     
     // Calculate Min
     CGFloat xScale = boundsSize.width / imageSize.width;    // the scale needed to perfectly fit the image width-wise
@@ -222,9 +234,16 @@
     }
 	
 	// Set
-	self.maximumZoomScale = maxScale;
-	self.minimumZoomScale = minScale;
-	self.zoomScale = zoomScale;
+    if (self.photoBrowser.zoomMode == RBSZoomModeWidth) {
+        self.maximumZoomScale = xScale;
+        self.minimumZoomScale = xScale;
+        self.zoomScale = xScale;
+    }
+    else {
+        self.maximumZoomScale = maxScale;
+        self.minimumZoomScale = minScale;
+        self.zoomScale = minScale;
+    }
     
 	// Reset position
 	_photoImageView.frame = CGRectMake(0, 0, _photoImageView.frame.size.width, _photoImageView.frame.size.height);
@@ -258,24 +277,34 @@
     CGSize boundsSize = self.bounds.size;
     CGRect frameToCenter = _photoImageView.frame;
     
-    // Horizontally
-    if (frameToCenter.size.width < boundsSize.width) {
-        frameToCenter.origin.x = floorf((boundsSize.width - frameToCenter.size.width) / 2.0);
-	} else {
-        frameToCenter.origin.x = 0;
-	}
-    
-    // Vertically
-    if (frameToCenter.size.height < boundsSize.height) {
-        frameToCenter.origin.y = floorf((boundsSize.height - frameToCenter.size.height) / 2.0);
-	} else {
-        frameToCenter.origin.y = 0;
-	}
-    
-	// Center
-	if (!CGRectEqualToRect(_photoImageView.frame, frameToCenter))
-		_photoImageView.frame = frameToCenter;
-	
+    if (self.photoBrowser.zoomMode == RBSZoomModePage) {
+        self.contentInset = UIEdgeInsetsZero;
+        
+        // Horizontally
+        if (frameToCenter.size.width < boundsSize.width) {
+            frameToCenter.origin.x = floorf((boundsSize.width - frameToCenter.size.width) / 2.0);
+        } else {
+            frameToCenter.origin.x = 0;
+        }
+        
+        // Vertically
+        if (frameToCenter.size.height < boundsSize.height) {
+            frameToCenter.origin.y = floorf((boundsSize.height - frameToCenter.size.height) / 2.0);
+        } else {
+            frameToCenter.origin.y = 0;
+        }
+        
+        // Center
+        if (!CGRectEqualToRect(_photoImageView.frame, frameToCenter))
+            _photoImageView.frame = frameToCenter;
+        
+    }
+    else if (self.photoBrowser.zoomMode == RBSZoomModeWidth) {
+        _photoImageView.frame = CGRectMake(0, 0, _photoImageView.frame.size.width, _photoImageView.frame.size.height);
+    }
+    else {
+        [self zoomToCurrentFrame];
+    }
 }
 
 #pragma mark - UIScrollViewDelegate
@@ -307,27 +336,21 @@
 	// Cancel any single tap handling
 	[NSObject cancelPreviousPerformRequestsWithTarget:_photoBrowser];
 	
-	// Zoom
-	if (self.zoomScale == self.maximumZoomScale) {
-		
-		// Zoom out
-		[self setZoomScale:self.minimumZoomScale animated:YES];
-		
-	} else {
-		
-		// Zoom in
-        CGFloat newZoomScale;
-        if (((self.zoomScale - self.minimumZoomScale) / self.maximumZoomScale) >= 0.3) { // we're zoomed in a fair bit, so zoom to max now
-            // Go to max zoom
-            newZoomScale = self.maximumZoomScale;
-        } else {
-            // Zoom to 50%
-            newZoomScale = ((self.maximumZoomScale + self.minimumZoomScale) / 2);
+    [self.photoBrowser toggleZoomMode];
+    [self setMaxMinZoomScalesForCurrentBounds];
+    
+    // Adjust current view depending on new zoom mode
+    if (self.photoBrowser.zoomMode == RBSZoomModeWidth) {
+        self.contentOffset = CGPointZero;
+    }
+	if (self.photoBrowser.zoomMode == RBSZoomModeFrame) {
+        
+		// Find a frame under touch location
+        NSInteger index = [self.screen indexOfFrameAtPoint:[self relativeImagePoint:touchPoint]];
+        if (index != -1) {
+            self.currentFrameIndex = index;
+            [self zoomToCurrentFrame];
         }
-        CGFloat xsize = self.bounds.size.width / newZoomScale;
-        CGFloat ysize = self.bounds.size.height / newZoomScale;
-        [self zoomToRect:CGRectMake(touchPoint.x - xsize/2, touchPoint.y - ysize/2, xsize, ysize) animated:YES];
-
 	}
 	
 	// Delay controls
@@ -363,6 +386,89 @@
     touchX += self.contentOffset.x;
     touchY += self.contentOffset.y;
     [self handleDoubleTap:CGPointMake(touchX, touchY)];
+}
+
+#pragma mark - Comic reader extensions
+
+- (RBSScreen *)screen
+{
+    return (RBSScreen *) self.photo;
+}
+
+// Convert absolute screen coordinate to a image-level position where
+// both coordinates are between 0 and 1
+- (CGPoint)relativeImagePoint:(CGPoint)absolutePoint
+{
+    CGSize size = _photoImageView.image.size;
+    CGAffineTransform t = CGAffineTransformMakeScale(1/size.width, 1/size.height);
+    return CGPointApplyAffineTransform(absolutePoint, t);
+}
+
+- (CGRect)absoluteImageRect:(CGRect)relativeRect
+{
+    CGSize size = _photoImageView.image.size;
+    CGAffineTransform t = CGAffineTransformMakeScale(size.width, size.height);
+    return CGRectApplyAffineTransform(relativeRect, t);
+}
+
+- (void)zoomToCurrentFrame
+{
+    // Allows centering of image edges
+    self.contentInset = UIEdgeInsetsMake(240, 240, 240, 240);
+
+    // Reset image position (fixes weird offset problems when zooming)
+    _photoImageView.frame = CGRectMake(0, 0, _photoImageView.frame.size.width, _photoImageView.frame.size.height);
+    
+    RBSFrame *frame = self.screen.frames[self.currentFrameIndex];
+    CGRect rect = [self absoluteImageRect:frame.rect];
+    
+    if (frame.transitionDuration > 0) {
+        [UIView animateWithDuration:frame.transitionDuration animations:^{
+            [self zoomToRect:rect animated:NO];
+        }];
+    }
+    else {
+        [self zoomToRect:rect animated:NO];
+    }
+}
+
+- (void)jumpToNextFrame
+{
+    if (self.currentFrameIndex < self.lastFrameIndex) {
+        self.currentFrameIndex += 1;
+        [self zoomToCurrentFrame];
+    }
+}
+
+- (void)jumpToPreviousFrame
+{
+    if (self.currentFrameIndex > 0) {
+        self.currentFrameIndex -= 1;
+        [self zoomToCurrentFrame];
+    }
+}
+
+- (NSInteger)lastFrameIndex
+{
+    return self.screen.numFrames - 1;
+}
+
+- (BOOL)isShowingFirstFrame
+{
+    return self.currentFrameIndex == 0;
+}
+
+- (BOOL)isShowingLastFrame
+{
+    return self.currentFrameIndex == self.lastFrameIndex;
+}
+
+- (CGFloat)imageWidthZoomScale
+{
+    CGSize boundsSize = self.bounds.size;
+    CGSize imageSize = _photoImageView.image.size;
+    
+    return boundsSize.width / imageSize.width;
 }
 
 @end

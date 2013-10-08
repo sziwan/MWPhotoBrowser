@@ -12,7 +12,7 @@
 #import "MBProgressHUD.h"
 #import "SDImageCache.h"
 
-#define PADDING                 10
+#define PADDING                 0
 #define PAGE_INDEX_TAG_OFFSET   1000
 #define PAGE_INDEX(page)        ([(page) tag] - PAGE_INDEX_TAG_OFFSET)
 #define ACTION_SHEET_OLD_ACTIONS 2000
@@ -81,6 +81,7 @@
 - (MWZoomingScrollView *)pageDisplayedAtIndex:(NSUInteger)index;
 - (MWZoomingScrollView *)pageDisplayingPhoto:(id<MWPhoto>)photo;
 - (MWZoomingScrollView *)dequeueRecycledPage;
+- (MWZoomingScrollView *)currentPage;
 - (void)configurePage:(MWZoomingScrollView *)page forIndex:(NSUInteger)index;
 - (void)didStartViewingPageAtIndex:(NSUInteger)index;
 
@@ -97,6 +98,8 @@
 - (void)jumpToPageAtIndex:(NSUInteger)index animated:(BOOL)animated;
 - (void)gotoPreviousPage;
 - (void)gotoNextPage;
+- (void)leftSwipe;
+- (void)rightSwipe;
 
 // Controls
 - (void)cancelControlHiding;
@@ -169,6 +172,7 @@
     _currentPageIndex = 0;
     _displayActionButton = YES;
     _displayNavArrows = NO;
+    _zoomMode = RBSZoomModePage;
     _zoomPhotosToFill = YES;
     _performingLayout = NO; // Reset on view did appear
     _rotating = NO;
@@ -238,8 +242,14 @@
 	_pagingScrollView.delegate = self;
 	_pagingScrollView.showsHorizontalScrollIndicator = NO;
 	_pagingScrollView.showsVerticalScrollIndicator = NO;
-	_pagingScrollView.backgroundColor = [UIColor blackColor];
     _pagingScrollView.contentSize = [self contentSizeForPagingScrollView];
+    
+    // Ask delegate for background color
+    if ([_delegate respondsToSelector:@selector(backgroundColorForPhotoBrowser:)])
+        _pagingScrollView.backgroundColor = [_delegate backgroundColorForPhotoBrowser:self];
+    else
+        _pagingScrollView.backgroundColor = [UIColor blackColor];
+    
 	[self.view addSubview:_pagingScrollView];
 	
     // Toolbar
@@ -266,6 +276,15 @@
     if (self.displayActionButton) {
         _actionButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAction target:self action:@selector(actionButtonPressed:)];
     }
+    
+    // Swipe recognizers
+    UISwipeGestureRecognizer *leftSwipe = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(leftSwipe)];
+    leftSwipe.direction = UISwipeGestureRecognizerDirectionLeft;
+    [_pagingScrollView addGestureRecognizer:leftSwipe];
+    
+    UISwipeGestureRecognizer *rightSwipe = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(rightSwipe)];
+    rightSwipe.direction = UISwipeGestureRecognizerDirectionRight;
+    [_pagingScrollView addGestureRecognizer:rightSwipe];
     
     // Update
     [self reloadData];
@@ -832,6 +851,11 @@
 	return page;
 }
 
+- (MWZoomingScrollView *)currentPage
+{
+    return [self pageDisplayedAtIndex:_currentPageIndex];
+}
+
 // Handle page changes
 - (void)didStartViewingPageAtIndex:(NSUInteger)index {
     
@@ -957,7 +981,16 @@
 	if (_currentPageIndex != previousCurrentPage) {
         [self didStartViewingPageAtIndex:index];
     }
-	
+
+    if (self.zoomMode == RBSZoomModeFrame) {
+        // Either we start at the first or the last frame
+        if (_currentPageIndex == previousCurrentPage + 1)
+            self.currentPage.currentFrameIndex = 0;
+        else if (_currentPageIndex == previousCurrentPage - 1)
+            self.currentPage.currentFrameIndex = self.currentPage.lastFrameIndex;
+        
+        [self.currentPage zoomToCurrentFrame];
+    }
 }
 
 - (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView {
@@ -982,8 +1015,8 @@
 	}
 	
 	// Buttons
-	_previousButton.enabled = (_currentPageIndex > 0);
-	_nextButton.enabled = (_currentPageIndex < [self numberOfPhotos]-1);
+	_previousButton.enabled = (_currentPageIndex > 0) || self.currentPage.currentFrameIndex > 0;
+	_nextButton.enabled = (_currentPageIndex < [self numberOfPhotos]-1) || self.currentPage.currentFrameIndex < self.currentPage.lastFrameIndex;
     _actionButton.enabled = [[self photoAtIndex:_currentPageIndex] underlyingImage] != nil;
 	
 }
@@ -1003,10 +1036,33 @@
 }
 
 - (void)gotoPreviousPage {
-    [self showPreviousPhotoAnimated:NO];
+    if (self.zoomMode == RBSZoomModeFrame && !self.currentPage.isShowingFirstFrame) {
+        [self.currentPage jumpToPreviousFrame];
+        [self updateNavigation];
+    }
+    else {
+        [self showPreviousPhotoAnimated:NO];
+    }
 }
+
 - (void)gotoNextPage {
-    [self showNextPhotoAnimated:NO];
+    if (self.zoomMode == RBSZoomModeFrame && !self.currentPage.isShowingLastFrame) {
+        [self.currentPage jumpToNextFrame];
+        [self updateNavigation];
+    }
+    else {
+        [self showNextPhotoAnimated:NO];
+    }
+}
+
+- (void)rightSwipe
+{
+    [self gotoPreviousPage];
+}
+
+- (void)leftSwipe
+{
+    [self gotoNextPage];
 }
 
 - (void)showPreviousPhotoAnimated:(BOOL)animated {
@@ -1411,6 +1467,31 @@
 		[alert show];
     }
     [self dismissViewControllerAnimated:YES completion:nil];
+}
+
+#pragma mark - Frame browsing
+
+- (void)toggleZoomMode
+{
+    // Cycle to next zoom mode
+    RBSZoomMode mode = (self.zoomMode + 1) % 3;
+    
+    // Back to default if selected mode is invalid
+    if (![_delegate photoBrowser:self shouldAllowZoomMode:mode])
+        mode = RBSZoomModePage;
+    
+    switch (mode) {
+        case RBSZoomModePage:
+        case RBSZoomModeWidth:
+            _pagingScrollView.scrollEnabled = self.currentPage.scrollEnabled = YES;
+            break;
+            
+        case RBSZoomModeFrame:
+            _pagingScrollView.scrollEnabled = self.currentPage.scrollEnabled = NO;
+            break;
+    }
+    
+    self.zoomMode = mode;
 }
 
 @end

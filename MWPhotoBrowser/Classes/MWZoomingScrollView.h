@@ -26,4 +26,14 @@
 - (void)setMaxMinZoomScalesForCurrentBounds;
 - (void)prepareForReuse;
 
+// Comic reader extensions
+@property NSInteger currentFrameIndex;
+@property (readonly) NSInteger lastFrameIndex;
+
+- (void)jumpToNextFrame;
+- (void)jumpToPreviousFrame;
+- (BOOL)isShowingFirstFrame;
+- (BOOL)isShowingLastFrame;
+- (void)zoomToCurrentFrame;
+
 @end
