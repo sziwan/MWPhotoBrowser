@@ -407,6 +407,12 @@
 
 - (void)zoomToCurrentFrame
 {
+    // Called from scroll / layout callbacks and on page boundaries
+    [self zoomToCurrentFrameAnimated:NO];
+}
+
+- (void)zoomToCurrentFrameAnimated:(BOOL)animated
+{
     // Allows centering of image edges
     self.contentInset = UIEdgeInsetsMake(240, 240, 240, 240);
 
@@ -415,22 +421,16 @@
     
     RBSFrame *frame = self.screen.frames[self.currentFrameIndex];
     CGRect rect = [self absoluteImageRect:frame.rect];
-    
-    if (frame.transitionDuration > 0) {
-        [UIView animateWithDuration:frame.transitionDuration animations:^{
-            [self zoomToRect:rect animated:NO];
-        }];
-    }
-    else {
-        [self zoomToRect:rect animated:NO];
-    }
+
+    // Ignore frame transition duration
+    [self zoomToRect:rect animated:animated];
 }
 
 - (void)jumpToNextFrame
 {
     if (self.currentFrameIndex < self.lastFrameIndex) {
         self.currentFrameIndex += 1;
-        [self zoomToCurrentFrame];
+        [self zoomToCurrentFrameAnimated:YES];
     }
 }
 
@@ -438,7 +438,7 @@
 {
     if (self.currentFrameIndex > 0) {
         self.currentFrameIndex -= 1;
-        [self zoomToCurrentFrame];
+        [self zoomToCurrentFrameAnimated:YES];
     }
 }
 
