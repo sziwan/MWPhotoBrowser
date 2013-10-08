@@ -248,12 +248,6 @@
 	// Reset position
 	_photoImageView.frame = CGRectMake(0, 0, _photoImageView.frame.size.width, _photoImageView.frame.size.height);
     
-    // If we're zooming to full then centralise
-    if (zoomScale != minScale) {
-        self.contentOffset = CGPointMake((imageSize.width * zoomScale - boundsSize.width) / 2.0,
-                                         (imageSize.height * zoomScale - boundsSize.height) / 2.0);
-    }
-    
     // Layout
 	[self setNeedsLayout];
 
